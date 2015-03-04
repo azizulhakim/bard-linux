@@ -34,3 +34,17 @@
 #define SC3	0xff	//Subclass
 #define PR3	0x00	//Protocol
 
+
+/* Nexus 7 normal mode */
+#define NEXUS_VID0	0x18d1	//VID in ADK + ADB mode
+#define NEXUS_PID0	0x4e42	//PID in ADK + ADB mode
+#define NEXUS_CL0	0xff	//Class
+#define NEXUS_SC0	0x42	//Subclass
+#define NEXUS_PR0	0x01	//Protocol
+
+/* Nexus 7 adk + debugging */
+#define NEXUS_VID1	0x18d1	//VID in ADK + ADB mode
+#define NEXUS_PID1	0x2d01	//PID in ADK + ADB mode
+#define NEXUS_CL1	0xff	//Class
+#define NEXUS_SC1	0xff	//Subclass
+#define NEXUS_PR1	0x00	//Protocol

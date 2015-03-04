@@ -475,7 +475,7 @@ static int dlfb_render_hline(struct dlfb_data *dev, struct urb **urb_ptr,
 	 * -can prefectch_line() be of some perf. boostr here? Check.
 	 */
 	retval = usb_bulk_msg(dev->udev,
-	      usb_sndbulkpipe(dev->udev, 0x07),
+	      usb_sndbulkpipe(dev->udev, dev->bulk_out_add),
 	      data, byte_width + 2, &transferred, HZ*5);
 		      
 	sent_ptr = transferred;

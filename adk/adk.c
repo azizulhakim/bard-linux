@@ -14,6 +14,7 @@
 static struct usb_device_id adk_devices [] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(VID0, PID0, CL0, SC0, PR0) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(VID2, PID2, CL2, SC2, PR2) },
+	{ USB_DEVICE_AND_INTERFACE_INFO(NEXUS_VID0, NEXUS_PID0, NEXUS_CL0, NEXUS_SC0, NEXUS_PR0) },
 	{ } /* Terminating entry */
 };
 
