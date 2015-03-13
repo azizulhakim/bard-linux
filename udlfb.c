@@ -353,7 +353,7 @@ static int dlfb_set_video_mode(struct dlfb_data *dev,
 	
 	printk("dlfb_set_video_mode called\n");
 
-	if (!atomic_read(&dev->usb_active))
+	if (!atomic_read(&dev->video.usb_active))
 		return -EPERM;
 
 	urb = dlfb_get_urb(dev);
@@ -372,7 +372,7 @@ static int dlfb_set_video_mode(struct dlfb_data *dev,
 	/* set base for 16bpp segment to 0 */
 	wrptr = dlfb_set_base16bpp(wrptr, 0);
 	/* set base for 8bpp segment to end of fb */
-	wrptr = dlfb_set_base8bpp(wrptr, dev->info->fix.smem_len);
+	wrptr = dlfb_set_base8bpp(wrptr, dev->video.info->fix.smem_len);
 
 	wrptr = dlfb_set_vid_cmds(wrptr, var);
 	wrptr = dlfb_blanking(wrptr, FB_BLANK_UNBLANK);
@@ -390,7 +390,7 @@ static int dlfb_set_video_mode(struct dlfb_data *dev,
 	 */
 	retval = dlfb_submit_urb(dev, urb, writesize);
 
-	dev->blank_mode = FB_BLANK_UNBLANK;
+	dev->video.blank_mode = FB_BLANK_UNBLANK;
 
 	return retval;
 }
@@ -441,7 +441,7 @@ static int dlfb_render_hline(struct dlfb_data *dev, struct urb **urb_ptr,
 			      int *ident_ptr, int *sent_ptr)
 {				  
 	const u8 *line_start, *line_end, *next_pixel;
-	u32 dev_addr = dev->base16 + byte_offset;
+	u32 dev_addr = dev->video.base16 + byte_offset;
 	
 	// For page y-index encoding
 	u8 *data;
@@ -519,11 +519,11 @@ int dlfb_handle_damage(struct dlfb_data *dev, int x, int y,
 	x = aligned_x;
 
 	if ((width <= 0) ||
-	    (x + width > dev->info->var.xres) ||
-	    (y + height > dev->info->var.yres))
+	    (x + width > dev->video.info->var.xres) ||
+	    (y + height > dev->video.info->var.yres))
 		return -EINVAL;
 
-	if (!atomic_read(&dev->usb_active))
+	if (!atomic_read(&dev->video.usb_active))
 		return 0;
 
 	/* Modified: 
@@ -531,11 +531,11 @@ int dlfb_handle_damage(struct dlfb_data *dev, int x, int y,
 	 * Now all USB transfers would be of same length - 4096
 	 */
 	for (i = y; i < y + height ; i++) {
-		const int line_offset = dev->info->fix.line_length * i;
+		const int line_offset = dev->video.info->fix.line_length * i;
 		const int byte_offset = line_offset + (x * BPP);
 
 		if (dlfb_render_hline(dev, &urb,
-				      (char *) dev->info->fix.smem_start,
+				      (char *) dev->video.info->fix.smem_start,
 				      &cmd, byte_offset, width * BPP * 2,
 				      &bytes_identical, &bytes_sent))
 			goto error;
@@ -543,13 +543,13 @@ int dlfb_handle_damage(struct dlfb_data *dev, int x, int y,
 	}
 
 error:
-	atomic_add(bytes_sent, &dev->bytes_sent);
-	atomic_add(bytes_identical, &dev->bytes_identical);
-	atomic_add(width*height*2, &dev->bytes_rendered);
+	atomic_add(bytes_sent, &dev->video.bytes_sent);
+	atomic_add(bytes_identical, &dev->video.bytes_identical);
+	atomic_add(width*height*2, &dev->video.bytes_rendered);
 	end_cycles = get_cycles();
 	atomic_add(((unsigned int) ((end_cycles - start_cycles)
 		    >> 10)), /* Kcycles */
-		   &dev->cpu_kcycles_used);
+		   &dev->video.cpu_kcycles_used);
 
 	return 0;
 }
@@ -680,7 +680,7 @@ static void dlfb_dpy_deferred_io(struct fb_info *info,
 	if (!fb_defio)
 		return;
 
-	if (!atomic_read(&dev->usb_active))
+	if (!atomic_read(&dev->video.usb_active))
 		return;
 
 	start_cycles = get_cycles();
@@ -696,13 +696,13 @@ static void dlfb_dpy_deferred_io(struct fb_info *info,
 	}
 
 error:
-	atomic_add(bytes_sent, &dev->bytes_sent);
-	atomic_add(bytes_identical, &dev->bytes_identical);
-	atomic_add(bytes_rendered, &dev->bytes_rendered);
+	atomic_add(bytes_sent, &dev->video.bytes_sent);
+	atomic_add(bytes_identical, &dev->video.bytes_identical);
+	atomic_add(bytes_rendered, &dev->video.bytes_rendered);
 	end_cycles = get_cycles();
 	atomic_add(((unsigned int) ((end_cycles - start_cycles)
 		    >> 10)), /* Kcycles */
-		   &dev->cpu_kcycles_used);
+		   &dev->video.cpu_kcycles_used);
 }
 
 #endif
@@ -715,13 +715,13 @@ static int dlfb_ops_ioctl(struct fb_info *info, unsigned int cmd,
 	
 	printk("dlfb_ops_ioctl called\n");
 
-	if (!atomic_read(&dev->usb_active))
+	if (!atomic_read(&dev->video.usb_active))
 		return 0;
 
 	/* TODO: Update X server to get this from sysfs instead */
 	if (cmd == DLFB_IOCTL_RETURN_EDID) {
 		void __user *edid = (void __user *)arg;
-		if (copy_to_user(edid, dev->edid, dev->edid_size))
+		if (copy_to_user(edid, dev->video.edid, dev->video.edid_size))
 			return -EFAULT;
 		return 0;
 	}
@@ -813,10 +813,10 @@ static int dlfb_ops_open(struct fb_info *info, int user)
 		return -EBUSY;
 
 	/* If the USB device is gone, we don't accept new opens */
-	if (dev->virtualized)
+	if (dev->video.virtualized)
 		return -ENODEV;
 
-	dev->fb_count++;
+	dev->video.fb_count++;
 
 	kref_get(&dev->kref);
 
@@ -839,7 +839,7 @@ static int dlfb_ops_open(struct fb_info *info, int user)
 #endif
 
 	pr_notice("open /dev/fb%d user=%d fb_info=%p count=%d\n",
-	    info->node, user, info, dev->fb_count);
+	    info->node, user, info, dev->video.fb_count);
 
 	return 0;
 }
@@ -855,10 +855,10 @@ static void dlfb_free(struct kref *kref)
 	
 	printk("dlfb_free called\n");
 
-	if (dev->backing_buffer)
-		vfree(dev->backing_buffer);
+	if (dev->video.backing_buffer)
+		vfree(dev->video.backing_buffer);
 
-	kfree(dev->edid);
+	kfree(dev->video.edid);
 
 	pr_warn("freeing dlfb_data %p\n", dev);
 
@@ -872,12 +872,12 @@ static void dlfb_release_urb_work(struct work_struct *work)
 					      
 	printk("dlfb_release_urb_work called\n");
 
-	up(&unode->dev->urbs.limit_sem);
+	up(&unode->dev->video.urbs.limit_sem);
 }
 
 static void dlfb_free_framebuffer(struct dlfb_data *dev)
 {
-	struct fb_info *info = dev->info;
+	struct fb_info *info = dev->video.info;
 	
 	printk("dlfb_free_framebuffer called\n");
 
@@ -895,7 +895,7 @@ static void dlfb_free_framebuffer(struct dlfb_data *dev)
 
 		fb_destroy_modelist(&info->modelist);
 
-		dev->info = NULL;
+		dev->video.info = NULL;
 
 		/* Assume info structure is freed after this point */
 		framebuffer_release(info);
@@ -925,14 +925,14 @@ static int dlfb_ops_release(struct fb_info *info, int user)
 
 	printk("dlfb_ops_release called\n");	
 	
-	dev->fb_count--;
+	dev->video.fb_count--;
 
 	/* We can't free fb_info here - fbmem will touch it when we return */
-	if (dev->virtualized && (dev->fb_count == 0))
+	if (dev->video.virtualized && (dev->video.fb_count == 0))
 		schedule_delayed_work(&dev->free_framebuffer_work, HZ);
 
 #ifdef CONFIG_FB_DEFERRED_IO
-	if ((dev->fb_count == 0) && (info->fbdefio)) {
+	if ((dev->video.fb_count == 0) && (info->fbdefio)) {
 		fb_deferred_io_cleanup(info);
 		kfree(info->fbdefio);
 		info->fbdefio = NULL;
@@ -941,7 +941,7 @@ static int dlfb_ops_release(struct fb_info *info, int user)
 #endif
 
 	pr_warn("released /dev/fb%d user=%d count=%d\n",
-		  info->node, user, dev->fb_count);
+		  info->node, user, dev->video.fb_count);
 
 	kref_put(&dev->kref, dlfb_free);
 
@@ -959,7 +959,7 @@ static int dlfb_is_valid_mode(struct fb_videomode *mode,
 	
 	printk("dlfb_is_valid_mode called\n");
 
-	if (mode->xres * mode->yres > dev->sku_pixel_limit) {
+	if (mode->xres * mode->yres > dev->video.sku_pixel_limit) {
 		pr_warn("%dx%d beyond chip capabilities\n",
 		       mode->xres, mode->yres);
 		return 0;
@@ -1020,7 +1020,7 @@ static int dlfb_ops_set_par(struct fb_info *info)
 
 	result = dlfb_set_video_mode(dev, &info->var);
 
-	if ((result == 0) && (dev->fb_count == 0)) {
+	if ((result == 0) && (dev->video.fb_count == 0)) {
 
 		/* paint greenscreen */
 
@@ -1067,9 +1067,9 @@ static int dlfb_ops_blank(int blank_mode, struct fb_info *info)
 	printk("dlfb_ops_blank called\n");
 
 	pr_info("/dev/fb%d FB_BLANK mode %d --> %d\n",
-		info->node, dev->blank_mode, blank_mode);
+		info->node, dev->video.blank_mode, blank_mode);
 
-	if ((dev->blank_mode == FB_BLANK_POWERDOWN) &&
+	if ((dev->video.blank_mode == FB_BLANK_POWERDOWN) &&
 	    (blank_mode != FB_BLANK_POWERDOWN)) {
 
 		/* returning from powerdown requires a fresh modeset */
@@ -1091,7 +1091,7 @@ static int dlfb_ops_blank(int blank_mode, struct fb_info *info)
 	dlfb_submit_urb(dev, urb, bufptr -
 			(char *) urb->transfer_buffer);
 
-	dev->blank_mode = blank_mode;
+	dev->video.blank_mode = blank_mode;
 
 	return 0;
 }
@@ -1177,9 +1177,9 @@ static int dlfb_realloc_framebuffer(struct dlfb_data *dev, struct fb_info *info)
 		if (!new_back)
 			pr_info("No shadow/backing buffer allocated\n");
 		else {
-			if (dev->backing_buffer)
-				vfree(dev->backing_buffer);
-			dev->backing_buffer = new_back;
+			if (dev->video.backing_buffer)
+				vfree(dev->video.backing_buffer);
+			dev->video.backing_buffer = new_back;
 		}
 	}
 
@@ -1246,8 +1246,8 @@ static int dlfb_setup_modes(struct dlfb_data *dev,
 		}
 
 		if (info->monspecs.modedb_len > 0) {
-			dev->edid = edid;
-			dev->edid_size = i;
+			dev->video.edid = edid;
+			dev->video.edid_size = i;
 			break;
 		}
 	}
@@ -1257,8 +1257,8 @@ static int dlfb_setup_modes(struct dlfb_data *dev,
 
 		pr_err("Unable to get valid EDID from device/display\n");
 
-		if (dev->edid) {
-			fb_edid_to_monspecs(dev->edid, &info->monspecs);
+		if (dev->video.edid) {
+			fb_edid_to_monspecs(dev->video.edid, &info->monspecs);
 			if (info->monspecs.modedb_len > 0)
 				pr_err("Using previously queried EDID\n");
 		}
@@ -1270,8 +1270,8 @@ static int dlfb_setup_modes(struct dlfb_data *dev,
 			fb_edid_to_monspecs(default_edid, &info->monspecs);
 			if (info->monspecs.modedb_len > 0) {
 				memcpy(edid, default_edid, default_edid_size);
-				dev->edid = edid;
-				dev->edid_size = default_edid_size;
+				dev->video.edid = edid;
+				dev->video.edid_size = default_edid_size;
 				pr_err("Using default/backup EDID\n");
 			}
 		}
@@ -1329,7 +1329,7 @@ static int dlfb_setup_modes(struct dlfb_data *dev,
 	}
 #endif
 	/* If we have good mode and no active clients*/
-	if ((default_vmode != NULL) && (dev->fb_count == 0)) {
+	if ((default_vmode != NULL) && (dev->video.fb_count == 0)) {
 
 		fb_videomode_to_var(&info->var, default_vmode);
 		dlfb_var_color_format(&info->var);
@@ -1347,7 +1347,7 @@ static int dlfb_setup_modes(struct dlfb_data *dev,
 		result = -EINVAL;
 
 error:
-	if (edid && (dev->edid != edid))
+	if (edid && (dev->video.edid != edid))
 		kfree(edid);
 
 	if (info->dev)
@@ -1364,7 +1364,7 @@ static ssize_t metrics_bytes_rendered_show(struct device *fbdev,
 	printk("metrics_bytes_rendered_show called\n");
 	
 	return snprintf(buf, PAGE_SIZE, "%u\n",
-			atomic_read(&dev->bytes_rendered));
+			atomic_read(&dev->video.bytes_rendered));
 }
 
 static ssize_t metrics_bytes_identical_show(struct device *fbdev,
@@ -1375,7 +1375,7 @@ static ssize_t metrics_bytes_identical_show(struct device *fbdev,
 	printk("metrics_bytes_identical_show called\n");
 	
 	return snprintf(buf, PAGE_SIZE, "%u\n",
-			atomic_read(&dev->bytes_identical));
+			atomic_read(&dev->video.bytes_identical));
 }
 
 static ssize_t metrics_bytes_sent_show(struct device *fbdev,
@@ -1386,7 +1386,7 @@ static ssize_t metrics_bytes_sent_show(struct device *fbdev,
 	printk("metrics_bytes_sent_show called\n");
 	
 	return snprintf(buf, PAGE_SIZE, "%u\n",
-			atomic_read(&dev->bytes_sent));
+			atomic_read(&dev->video.bytes_sent));
 }
 
 static ssize_t metrics_cpu_kcycles_used_show(struct device *fbdev,
@@ -1397,7 +1397,7 @@ static ssize_t metrics_cpu_kcycles_used_show(struct device *fbdev,
 	printk("metrics_cpu_kcycles_used_show called\n");
 	
 	return snprintf(buf, PAGE_SIZE, "%u\n",
-			atomic_read(&dev->cpu_kcycles_used));
+			atomic_read(&dev->video.cpu_kcycles_used));
 }
 
 static ssize_t monitor_show(struct device *fbdev,
@@ -1423,19 +1423,19 @@ static ssize_t edid_show(
 	
 	printk("edid_show called\n");
 
-	if (dev->edid == NULL)
+	if (dev->video.edid == NULL)
 		return 0;
 
-	if ((off >= dev->edid_size) || (count > dev->edid_size))
+	if ((off >= dev->video.edid_size) || (count > dev->video.edid_size))
 		return 0;
 
-	if (off + count > dev->edid_size)
-		count = dev->edid_size - off;
+	if (off + count > dev->video.edid_size)
+		count = dev->video.edid_size - off;
 
 	pr_info("sysfs edid copy %p to %p, %d bytes\n",
-		dev->edid, buf, (int) count);
+		dev->video.edid, buf, (int) count);
 
-	memcpy(buf, dev->edid, count);
+	memcpy(buf, dev->video.edid, count);
 
 	return count;
 }
@@ -1458,7 +1458,7 @@ static ssize_t edid_store(
 
 	dlfb_setup_modes(dev, fb_info, src, src_size);
 
-	if (dev->edid && (memcmp(src, dev->edid, src_size) == 0)) {
+	if (dev->video.edid && (memcmp(src, dev->video.edid, src_size) == 0)) {
 		pr_info("sysfs written EDID is new default\n");
 		dlfb_ops_set_par(fb_info);
 		return src_size;
@@ -1475,10 +1475,10 @@ static ssize_t metrics_reset_store(struct device *fbdev,
 	
 	printk("metrics_reset_store called\n");
 
-	atomic_set(&dev->bytes_rendered, 0);
-	atomic_set(&dev->bytes_identical, 0);
-	atomic_set(&dev->bytes_sent, 0);
-	atomic_set(&dev->cpu_kcycles_used, 0);
+	atomic_set(&dev->video.bytes_rendered, 0);
+	atomic_set(&dev->video.bytes_identical, 0);
+	atomic_set(&dev->video.bytes_sent, 0);
+	atomic_set(&dev->video.cpu_kcycles_used, 0);
 
 	return count;
 }
@@ -1579,7 +1579,7 @@ static int dlfb_parse_vendor_descriptor(struct dlfb_data *dev,
 				max_area = le32_to_cpu(*((u32 *)desc));
 				pr_warn("DL chip limited to %d pixel modes\n",
 					max_area);
-				dev->sku_pixel_limit = max_area;
+				dev->video.sku_pixel_limit = max_area;
 				break;
 			}
 			default:
@@ -1626,9 +1626,9 @@ set_bulk_address (
 			if(endpoint->bEndpointAddress & USB_DIR_IN) {
 				dev->bulk_in_add = endpoint->bEndpointAddress;
 				dev->bulk_in_size = endpoint->wMaxPacketSize;
-				dev->bulk_in_buffer = kmalloc(dev->bulk_in_size,
+				dev->video.bulk_in_buffer = kmalloc(dev->bulk_in_size,
 							 	GFP_KERNEL);
-				if (!dev->bulk_in_buffer)
+				if (!dev->video.bulk_in_buffer)
 					printk("Could not allocate bulk buffer");
 			}
 			
@@ -1690,7 +1690,7 @@ static int dlfb_usb_probe(struct usb_interface *interface,
 	pr_info("fb_defio enable=%d\n", fb_defio);
 	pr_info("shadow enable=%d\n", shadow);
 
-	dev->sku_pixel_limit = 2048 * 1152; /* default to maximum */
+	dev->video.sku_pixel_limit = 2048 * 1152; /* default to maximum */
 
 	if (!dlfb_parse_vendor_descriptor(dev, interface)) {
 		pr_err("firmware not recognized. Assume incompatible device\n");
@@ -1700,8 +1700,8 @@ static int dlfb_usb_probe(struct usb_interface *interface,
 	if (pixel_limit) {
 		pr_warn("DL chip limit of %d overriden"
 			" by module param to %d\n",
-			dev->sku_pixel_limit, pixel_limit);
-		dev->sku_pixel_limit = pixel_limit;
+			dev->video.sku_pixel_limit, pixel_limit);
+		dev->video.sku_pixel_limit = pixel_limit;
 	}
 
 
@@ -1752,9 +1752,9 @@ static void dlfb_init_framebuffer_work(struct work_struct *work)
 		goto error;
 	}
 
-	dev->info = info;
+	dev->video.info = info;
 	info->par = dev;
-	info->pseudo_palette = dev->pseudo_palette;
+	info->pseudo_palette = dev->video.pseudo_palette;
 	info->fbops = &dlfb_ops;
 
 	retval = fb_alloc_cmap(&info->cmap, 256, 0);
@@ -1776,7 +1776,7 @@ static void dlfb_init_framebuffer_work(struct work_struct *work)
 
 	/* ready to begin using device */
 
-	atomic_set(&dev->usb_active, 1);
+	atomic_set(&dev->video.usb_active, 1);
 	dlfb_select_std_channel(dev);
 
 	dlfb_ops_check_var(&info->var, info);
@@ -1813,7 +1813,7 @@ static void dlfb_init_framebuffer_work(struct work_struct *work)
 	pr_info("DisplayLink USB device /dev/fb%d attached. %dx%d resolution."
 			" Using %dK framebuffer memory\n", info->node,
 			info->var.xres, info->var.yres,
-			((dev->backing_buffer) ?
+			((dev->video.backing_buffer) ?
 			info->fix.smem_len * 2 : info->fix.smem_len) >> 10);
 	return;
 
@@ -1830,15 +1830,15 @@ static void dlfb_usb_disconnect(struct usb_interface *interface)
 	printk("dlfb_usb_disconnect called\n");
 
 	dev = usb_get_intfdata(interface);
-	info = dev->info;
+	info = dev->video.info;
 
 	pr_info("USB disconnect starting\n");
 
 	/* we virtualize until all fb clients release. Then we free */
-	dev->virtualized = true;
+	dev->video.virtualized = true;
 
 	/* When non-active we'll update virtual framebuffer, but no new urbs */
-	atomic_set(&dev->usb_active, 0);
+	atomic_set(&dev->video.usb_active, 0);
 
 	/* this function will wait for all in-flight urbs to complete */
 	/* -TODO- Free these urbs.
@@ -1864,7 +1864,7 @@ static void dlfb_usb_disconnect(struct usb_interface *interface)
 	dev->gdev = NULL;
 
 	/* if clients still have us open, will be freed on last close */
-	if (dev->fb_count == 0)
+	if (dev->video.fb_count == 0)
 		schedule_delayed_work(&dev->free_framebuffer_work, 0);
 
 	/* release reference taken by kref_init in probe() */
@@ -1921,16 +1921,16 @@ static void dlfb_urb_completion(struct urb *urb)
 		    urb->status == -ESHUTDOWN)) {
 			pr_err("%s - nonzero write bulk status received: %d\n",
 				__func__, urb->status);
-			atomic_set(&dev->lost_pixels, 1);
+			atomic_set(&dev->video.lost_pixels, 1);
 		}
 	}
 
-	urb->transfer_buffer_length = dev->urbs.size; /* reset to actual */
+	urb->transfer_buffer_length = dev->video.urbs.size; /* reset to actual */
 
-	spin_lock_irqsave(&dev->urbs.lock, flags);
-	list_add_tail(&unode->entry, &dev->urbs.list);
-	dev->urbs.available++;
-	spin_unlock_irqrestore(&dev->urbs.lock, flags);
+	spin_lock_irqsave(&dev->video.urbs.lock, flags);
+	list_add_tail(&unode->entry, &dev->video.urbs.list);
+	dev->video.urbs.available++;
+	spin_unlock_irqrestore(&dev->video.urbs.lock, flags);
 
 	/*
 	 * When using fb_defio, we deadlock if up() is called
@@ -1939,12 +1939,12 @@ static void dlfb_urb_completion(struct urb *urb)
 	if (fb_defio)
 		schedule_delayed_work(&unode->release_urb_work, 0);
 	else
-		up(&dev->urbs.limit_sem);
+		up(&dev->video.urbs.limit_sem);
 }
 
 static void dlfb_free_urb_list(struct dlfb_data *dev)
 {
-	int count = dev->urbs.count;
+	int count = dev->video.urbs.count;
 	struct list_head *node;
 	struct urb_node *unode;
 	struct urb *urb;
@@ -1959,28 +1959,28 @@ static void dlfb_free_urb_list(struct dlfb_data *dev)
 	while (count--) {
 
 		/* Getting interrupted means a leak, but ok at disconnect */
-		ret = down_interruptible(&dev->urbs.limit_sem);
+		ret = down_interruptible(&dev->video.urbs.limit_sem);
 		if (ret)
 			break;
 
-		spin_lock_irqsave(&dev->urbs.lock, flags);
+		spin_lock_irqsave(&dev->video.urbs.lock, flags);
 
-		node = dev->urbs.list.next; /* have reserved one with sem */
+		node = dev->video.urbs.list.next; /* have reserved one with sem */
 		list_del_init(node);
 
-		spin_unlock_irqrestore(&dev->urbs.lock, flags);
+		spin_unlock_irqrestore(&dev->video.urbs.lock, flags);
 
 		unode = list_entry(node, struct urb_node, entry);
 		urb = unode->urb;
 
 		/* Free each separately allocated piece */
-		usb_free_coherent(urb->dev, dev->urbs.size,
+		usb_free_coherent(urb->dev, dev->video.urbs.size,
 				  urb->transfer_buffer, urb->transfer_dma);
 		usb_free_urb(urb);
 		kfree(node);
 	}
 
-	dev->urbs.count = 0;
+	dev->video.urbs.count = 0;
 }
 
 static int dlfb_alloc_urb_list(struct dlfb_data *dev, int count, size_t size)
@@ -1992,10 +1992,10 @@ static int dlfb_alloc_urb_list(struct dlfb_data *dev, int count, size_t size)
 	
 	printk("dlfb_alloc_urb_list called\n");
 
-	spin_lock_init(&dev->urbs.lock);
+	spin_lock_init(&dev->video.urbs.lock);
 
-	dev->urbs.size = size;
-	INIT_LIST_HEAD(&dev->urbs.list);
+	dev->video.urbs.size = size;
+	INIT_LIST_HEAD(&dev->video.urbs.list);
 
 	while (i < count) {
 		unode = kzalloc(sizeof(struct urb_node), GFP_KERNEL);
@@ -2029,14 +2029,14 @@ static int dlfb_alloc_urb_list(struct dlfb_data *dev, int count, size_t size)
 			buf, size, dlfb_urb_completion, unode);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
-		list_add_tail(&unode->entry, &dev->urbs.list);
+		list_add_tail(&unode->entry, &dev->video.urbs.list);
 
 		i++;
 	}
 
-	sema_init(&dev->urbs.limit_sem, i);
-	dev->urbs.count = i;
-	dev->urbs.available = i;
+	sema_init(&dev->video.urbs.limit_sem, i);
+	dev->video.urbs.count = i;
+	dev->video.urbs.available = i;
 
 	pr_notice("allocated %d %d byte urbs\n", i, (int) size);
 
@@ -2054,22 +2054,22 @@ static struct urb *dlfb_get_urb(struct dlfb_data *dev)
 	printk("dlfb_get_urb called\n");
 
 	/* Wait for an in-flight buffer to complete and get re-queued */
-	ret = down_timeout(&dev->urbs.limit_sem, GET_URB_TIMEOUT);
+	ret = down_timeout(&dev->video.urbs.limit_sem, GET_URB_TIMEOUT);
 	if (ret) {
-		atomic_set(&dev->lost_pixels, 1);
+		atomic_set(&dev->video.lost_pixels, 1);
 		pr_warn("wait for urb interrupted: %x available: %d\n",
-		       ret, dev->urbs.available);
+		       ret, dev->video.urbs.available);
 		goto error;
 	}
 
-	spin_lock_irqsave(&dev->urbs.lock, flags);
+	spin_lock_irqsave(&dev->video.urbs.lock, flags);
 
-	BUG_ON(list_empty(&dev->urbs.list)); /* reserved one with limit_sem */
-	entry = dev->urbs.list.next;
+	BUG_ON(list_empty(&dev->video.urbs.list)); /* reserved one with limit_sem */
+	entry = dev->video.urbs.list.next;
 	list_del_init(entry);
-	dev->urbs.available--;
+	dev->video.urbs.available--;
 
-	spin_unlock_irqrestore(&dev->urbs.lock, flags);
+	spin_unlock_irqrestore(&dev->video.urbs.lock, flags);
 
 	unode = list_entry(entry, struct urb_node, entry);
 	urb = unode->urb;
@@ -2084,7 +2084,7 @@ static int dlfb_submit_urb(struct dlfb_data *dev, struct urb *urb, size_t len)
 
 	printk("dlfb_submit_urb called\n");	
 	
-	BUG_ON(len > dev->urbs.size);
+	BUG_ON(len > dev->video.urbs.size);
 
 	urb->transfer_buffer_length = len; /* set to actual payload len */
 	
