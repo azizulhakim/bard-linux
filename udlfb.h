@@ -63,15 +63,15 @@ struct beaglevideo{
 };
 
 struct dlfb_data {
-	struct usb_device *udev;
-	struct device *gdev; /* &udev->dev */
+	struct usb_device *usbdev;
+	struct device *dev; /* &udev->dev */
 	struct kref kref;
 	struct delayed_work init_framebuffer_work;
 	struct delayed_work free_framebuffer_work;
 
 	/* blit-only rendering path metrics, exposed through sysfs */
-	u8 bulk_in_add;	/* bulk in endpoint address */
-	u8 bulk_out_add; /* bulk in endpoint address */
+	__u8 bulk_in_endpointAddr;	/* bulk in endpoint address */
+	__u8 bulk_out_endpointAddr; /* bulk in endpoint address */
 	size_t	bulk_in_size;	/* the size of the in buffer */
 
 

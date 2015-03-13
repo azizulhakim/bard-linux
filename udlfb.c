@@ -474,8 +474,8 @@ static int dlfb_render_hline(struct dlfb_data *dev, struct urb **urb_ptr,
 	 * -Remove hardcoded bulk-out address
 	 * -can prefectch_line() be of some perf. boostr here? Check.
 	 */
-	retval = usb_bulk_msg(dev->udev,
-	      usb_sndbulkpipe(dev->udev, dev->bulk_out_add),
+	retval = usb_bulk_msg(dev->usbdev,
+	      usb_sndbulkpipe(dev->usbdev, dev->bulk_out_endpointAddr),
 	      data, byte_width + 2, &transferred, HZ*5);
 		      
 	sent_ptr = transferred;
@@ -1513,7 +1513,7 @@ static int dlfb_select_std_channel(struct dlfb_data *dev)
 
 	printk("dlfb_select_std_channel called\n");
 
-	ret = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0),
+	ret = usb_control_msg(dev->usbdev, usb_sndctrlpipe(dev->usbdev, 0),
 			NR_USB_REQUEST_CHANNEL,
 			(USB_DIR_OUT | USB_TYPE_VENDOR), 0, 0,
 			set_def_chn, sizeof(set_def_chn), USB_CTRL_SET_TIMEOUT);
@@ -1624,7 +1624,7 @@ set_bulk_address (
 			
 			/* bulk in */
 			if(endpoint->bEndpointAddress & USB_DIR_IN) {
-				dev->bulk_in_add = endpoint->bEndpointAddress;
+				dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
 				dev->bulk_in_size = endpoint->wMaxPacketSize;
 				dev->video.bulk_in_buffer = kmalloc(dev->bulk_in_size,
 							 	GFP_KERNEL);
@@ -1634,7 +1634,7 @@ set_bulk_address (
 			
 			/* bulk out */
 			else
-				dev->bulk_out_add = endpoint->bEndpointAddress;	
+				dev->bulk_out_endpointAddr = endpoint->bEndpointAddress;	
 		}
 	}
 }
@@ -1676,8 +1676,8 @@ static int dlfb_usb_probe(struct usb_interface *interface,
 
 	kref_init(&dev->kref); /* matching kref_put in usb .disconnect fn */
 
-	dev->udev = usbdev;
-	dev->gdev = &usbdev->dev; /* our generic struct device * */
+	dev->usbdev = usbdev;
+	dev->dev = &usbdev->dev; /* our generic struct device * */
 	usb_set_intfdata(interface, dev);
 	set_bulk_address(dev, interface);
 
@@ -1745,7 +1745,7 @@ static void dlfb_init_framebuffer_work(struct work_struct *work)
 	printk("dlfb_init_framebuffer_work called\n");
 
 	/* allocates framebuffer driver structure, not framebuffer memory */
-	info = framebuffer_alloc(0, dev->gdev);
+	info = framebuffer_alloc(0, dev->dev);
 	if (!info) {
 		retval = -ENOMEM;
 		pr_err("framebuffer_alloc failed\n");
@@ -1860,8 +1860,8 @@ static void dlfb_usb_disconnect(struct usb_interface *interface)
 	}
 
 	usb_set_intfdata(interface, NULL);
-	dev->udev = NULL;
-	dev->gdev = NULL;
+	dev->usbdev = NULL;
+	dev->dev = NULL;
 
 	/* if clients still have us open, will be freed on last close */
 	if (dev->video.fb_count == 0)
@@ -2013,7 +2013,7 @@ static int dlfb_alloc_urb_list(struct dlfb_data *dev, int count, size_t size)
 		}
 		unode->urb = urb;
 
-		buf = usb_alloc_coherent(dev->udev, MAX_TRANSFER, GFP_KERNEL,
+		buf = usb_alloc_coherent(dev->usbdev, MAX_TRANSFER, GFP_KERNEL,
 					 &urb->transfer_dma);
 		if (!buf) {
 			kfree(unode);
@@ -2024,8 +2024,8 @@ static int dlfb_alloc_urb_list(struct dlfb_data *dev, int count, size_t size)
 		// -TODO- Remove hardcoded bulkout address
 		/* urb->transfer_buffer_length set to actual before submit */
 		/*  */
-		usb_fill_bulk_urb(urb, dev->udev, 
-			usb_sndbulkpipe(dev->udev, dev->bulk_out_add),
+		usb_fill_bulk_urb(urb, dev->usbdev, 
+			usb_sndbulkpipe(dev->usbdev, dev->bulk_out_endpointAddr),
 			buf, size, dlfb_urb_completion, unode);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
