@@ -90,6 +90,7 @@ static struct usb_device_id id_table[] = {
 		USB_DEVICE_ID_MATCH_INT_PROTOCOL,
 	},
 	{ USB_DEVICE_AND_INTERFACE_INFO(VID1, PID1, CL1, SC1, PR1) },
+	{ USB_DEVICE_AND_INTERFACE_INFO(VID1, 0x2d00, CL1, SC1, PR1) },
 	{},
 };
 MODULE_DEVICE_TABLE(usb, id_table);
@@ -1639,6 +1640,27 @@ set_bulk_address (
 	}
 }
 
+static int dlfb_video_init(struct dlfb_data *dev){
+
+	dev->video.sku_pixel_limit = 2048 * 1152; /* default to maximum */
+
+	if (pixel_limit) {
+		pr_warn("DL chip limit of %d overriden"
+			" by module param to %d\n",
+			dev->video.sku_pixel_limit, pixel_limit);
+		dev->video.sku_pixel_limit = pixel_limit;
+	}
+
+
+	if (!dlfb_alloc_urb_list(dev, WRITES_IN_FLIGHT, MAX_TRANSFER)) {
+		//retval = -ENOMEM;
+		pr_err("dlfb_alloc_urb_list failed\n");
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 static int dlfb_usb_probe(struct usb_interface *interface,
 			const struct usb_device_id *id)
 {
@@ -1690,26 +1712,19 @@ static int dlfb_usb_probe(struct usb_interface *interface,
 	pr_info("fb_defio enable=%d\n", fb_defio);
 	pr_info("shadow enable=%d\n", shadow);
 
-	dev->video.sku_pixel_limit = 2048 * 1152; /* default to maximum */
 
 	if (!dlfb_parse_vendor_descriptor(dev, interface)) {
 		pr_err("firmware not recognized. Assume incompatible device\n");
 		goto error;
 	}
 
-	if (pixel_limit) {
-		pr_warn("DL chip limit of %d overriden"
-			" by module param to %d\n",
-			dev->video.sku_pixel_limit, pixel_limit);
-		dev->video.sku_pixel_limit = pixel_limit;
-	}
 
-
-	if (!dlfb_alloc_urb_list(dev, WRITES_IN_FLIGHT, MAX_TRANSFER)) {
+	if (dlfb_video_init(dev)){
 		retval = -ENOMEM;
-		pr_err("dlfb_alloc_urb_list failed\n");
 		goto error;
 	}
+
+
 
 	kref_get(&dev->kref); /* matching kref_put in free_framebuffer_work */
 
